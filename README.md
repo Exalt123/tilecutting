@@ -1,4 +1,4 @@
-# 🔷 Technima Flow Optimizer
+# 🔷 Technema Flow Optimizer
 
 > Minimize changeovers. Maximize production efficiency.
 
