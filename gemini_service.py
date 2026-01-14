@@ -24,8 +24,7 @@ class GeminiOptimizer:
         try:
             api_key = st.secrets.get("gemini_api_key", "")
             
-            if not api_key or api_key == "YOUR_GEMINI_API_KEY_HERE":
-                st.error("❌ Gemini API key not configured in secrets.")
+            if not api_key or api_key.startswith("YOUR_"):
                 return
             
             genai.configure(api_key=api_key)
@@ -55,7 +54,7 @@ class GeminiOptimizer:
             pd.DataFrame: Reordered DataFrame optimized for production, or None on error
         """
         if not self.is_ready():
-            st.error("❌ Gemini AI not configured")
+            st.error("❌ Gemini AI not configured. Add gemini_api_key to secrets.")
             return None
         
         if orders_df.empty:
