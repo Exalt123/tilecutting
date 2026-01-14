@@ -2,7 +2,7 @@
 Google Sheets Service for Tile Cutting Automation
 ==================================================
 Handles all read/write operations with Google Sheets.
-Uses Streamlit secrets for credentials - no JSON upload needed.
+Uses Streamlit secrets for credentials - configured in Streamlit Cloud.
 """
 
 import streamlit as st
@@ -32,7 +32,6 @@ class GoogleSheetsService:
         try:
             # Get credentials from secrets
             if "gcp_service_account" not in st.secrets:
-                st.error("❌ Google credentials not configured in secrets.")
                 return
             
             credentials_dict = dict(st.secrets["gcp_service_account"])
@@ -53,7 +52,7 @@ class GoogleSheetsService:
     
     def is_connected(self) -> bool:
         """Check if the service is properly connected."""
-        return self.client is not None and self.spreadsheet_id
+        return self.client is not None and bool(self.spreadsheet_id)
     
     @st.cache_data(ttl=60)
     def fetch_pending_orders(_self) -> pd.DataFrame:
@@ -77,7 +76,7 @@ class GoogleSheetsService:
             pd.DataFrame: DataFrame of pending orders
         """
         if not _self.is_connected():
-            st.error("❌ Not connected to Google Sheets")
+            st.error("❌ Not connected to Google Sheets. Check your secrets configuration.")
             return pd.DataFrame()
         
         try:
