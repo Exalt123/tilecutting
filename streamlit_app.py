@@ -203,48 +203,32 @@ def main():
         
         st.markdown("---")
         
-        # --- EDITABLE TABLE ---
-        st.markdown("### 📝 Review & Reorder")
-        st.caption("Drag rows to reorder, or edit values directly. Changes are reflected in the final run sheet.")
+        # --- DATA TABLE ---
+        st.markdown("### 📝 Review Run Sequence")
         
         # Prepare display dataframe
         display_cols = ['customer', 'job_number', 'tile_cut_width', 'tile_cut_length', 
                        'qty_required', 'tile_width', 'tile_length', 'date_available']
         available_cols = [c for c in display_cols if c in df.columns]
         
-        # Add a Cut Size column for easy viewing
+        # Create display dataframe with cut size column
         display_df = df[available_cols].copy()
-        display_df.insert(0, 'Cut Size', 
-            df['tile_cut_width'].astype(str) + ' × ' + df['tile_cut_length'].astype(str))
-        display_df.insert(0, '#', range(1, len(df) + 1))
         
-        # Editable data editor
-        edited_df = st.data_editor(
+        # Add cut size as first column
+        if 'tile_cut_width' in df.columns and 'tile_cut_length' in df.columns:
+            display_df.insert(0, 'Cut Size', 
+                df['tile_cut_width'].astype(str) + ' × ' + df['tile_cut_length'].astype(str))
+        
+        # Add run number
+        display_df.insert(0, 'Run #', range(1, len(df) + 1))
+        
+        # Display as simple dataframe (more reliable)
+        st.dataframe(
             display_df,
             use_container_width=True,
             hide_index=True,
-            num_rows="fixed",
-            column_config={
-                "#": st.column_config.NumberColumn("Run #", width="small"),
-                "Cut Size": st.column_config.TextColumn("Cut Size", width="medium"),
-                "customer": st.column_config.TextColumn("Customer"),
-                "job_number": st.column_config.TextColumn("Job #"),
-                "tile_cut_width": st.column_config.NumberColumn("Cut W"),
-                "tile_cut_length": st.column_config.NumberColumn("Cut L"),
-                "qty_required": st.column_config.NumberColumn("Qty"),
-                "tile_width": st.column_config.NumberColumn("Tile W"),
-                "tile_length": st.column_config.NumberColumn("Tile L"),
-                "date_available": st.column_config.TextColumn("Available"),
-            },
             height=400
         )
-        
-        # Update session state if edited
-        if not edited_df.equals(display_df):
-            # Map edits back to main dataframe
-            for col in available_cols:
-                if col in edited_df.columns:
-                    st.session_state.optimized_data[col] = edited_df[col].values
         
         st.markdown("---")
         
