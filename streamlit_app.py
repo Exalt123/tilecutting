@@ -1,8 +1,8 @@
 """
 Tile Cutting Automation
 =======================
-A web-based application that optimizes tile cutting production flow
-to minimize machine changeovers and downtime.
+One-click optimization for tile cutting production flow.
+Minimizes changeovers, generates operator-ready PDF.
 
 Author: Exalt Samples LLC
 """
@@ -10,16 +10,19 @@ Author: Exalt Samples LLC
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from io import BytesIO
 
 # Import services
-from services import GoogleSheetsService, GeminiOptimizer
+from gsheets_service import GoogleSheetsService
+from gemini_service import GeminiOptimizer
+from pdf_generator import generate_run_sheet_pdf
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="Tile Cutting Automation",
     page_icon="🔷",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # --- PASSWORD PROTECTION ---
@@ -32,22 +35,22 @@ def check_password() -> bool:
     if st.session_state.authenticated:
         return True
     
-    # Login UI
     st.title("🔷 Tile Cutting Automation")
     st.markdown("### 🔒 Login Required")
-    st.markdown("Enter the shop password to access the production optimizer.")
     
-    with st.form("login_form"):
-        password = st.text_input("Password", type="password")
-        submit = st.form_submit_button("🔓 Login", use_container_width=True)
-        
-        if submit:
-            app_password = st.secrets.get("app_password", "Exalt123")
-            if password == app_password:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("❌ Incorrect password. Please try again.")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("login_form"):
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("🔓 Login", use_container_width=True)
+            
+            if submit:
+                app_password = st.secrets.get("app_password", "Exalt123")
+                if password == app_password:
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect password")
     
     return False
 
@@ -55,255 +58,245 @@ def check_password() -> bool:
 # --- INITIALIZE SERVICES ---
 @st.cache_resource
 def get_sheets_service():
-    """Get cached Google Sheets service instance."""
     return GoogleSheetsService()
 
 @st.cache_resource
 def get_gemini_service():
-    """Get cached Gemini optimizer instance."""
     return GeminiOptimizer()
 
 
 # --- MAIN APPLICATION ---
 def main():
-    """Main application logic."""
-    
-    # Check authentication
     if not check_password():
         st.stop()
     
-    # Initialize services
     sheets_service = get_sheets_service()
     gemini_service = get_gemini_service()
     
     # --- HEADER ---
-    st.title("🔷 Tile Cutting Automation")
-    st.markdown("*Minimize changeovers. Maximize production efficiency.*")
-    
-    # --- SIDEBAR ---
-    with st.sidebar:
-        st.header("⚙️ Controls")
-        
-        # Logout button
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.authenticated = False
-            st.session_state.pop('pending_orders', None)
-            st.session_state.pop('optimized_orders', None)
-            st.rerun()
-        
-        st.markdown("---")
-        
-        # Connection status
-        st.subheader("📡 Status")
-        
-        if sheets_service.is_connected():
-            st.success("✅ Google Sheets Connected")
-        else:
-            st.error("❌ Google Sheets Not Connected")
-        
-        if gemini_service.is_ready():
-            st.success("✅ Gemini AI Ready")
-        else:
-            st.error("❌ Gemini AI Not Configured")
-        
-        st.markdown("---")
-        
-        # Instructions
-        with st.expander("📖 How to Use", expanded=False):
-            st.markdown("""
-            **Step 1: Refresh Data**
-            - Click "Refresh Data" to pull pending orders
-            - Only orders with empty `date_scheduled` appear
-            
-            **Step 2: Optimize**
-            - Click "✨ Optimize Run Flow"
-            - AI groups orders by cut size
-            - Review the optimized sequence
-            
-            **Step 3: Approve**
-            - Click "✅ Approve & Schedule"
-            - Orders are timestamped in the sheet
-            - Ready for production!
-            """)
-        
-        st.markdown("---")
-        st.caption("Sheet columns:")
-        st.code("customer, job_number,\ntile_width, tile_length,\ntile_cut_width, tile_cut_length,\nqty_required, date_available,\ndate_scheduled", language=None)
-    
-    # --- MAIN CONTENT ---
-    
-    # Initialize session state
-    if 'pending_orders' not in st.session_state:
-        st.session_state.pending_orders = None
-    if 'optimized_orders' not in st.session_state:
-        st.session_state.optimized_orders = None
-    
-    # --- STEP 1: DATA INGESTION ---
-    st.header("📥 Step 1: Load Orders")
-    
-    col1, col2, col3 = st.columns([1, 1, 2])
-    
-    with col1:
-        if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
-            sheets_service.clear_cache()
-            st.session_state.pending_orders = sheets_service.fetch_pending_orders()
-            st.session_state.optimized_orders = None  # Reset optimization
-            if st.session_state.pending_orders is not None:
-                st.success(f"✅ Loaded {len(st.session_state.pending_orders)} pending orders")
-    
-    with col2:
-        if st.button("🗑️ Clear All", use_container_width=True):
-            st.session_state.pending_orders = None
-            st.session_state.optimized_orders = None
+    col_title, col_logout = st.columns([6, 1])
+    with col_title:
+        st.title("🔷 Tile Cutting Automation")
+        st.caption("Minimize changeovers. Maximize efficiency.")
+    with col_logout:
+        if st.button("🚪 Logout"):
+            st.session_state.clear()
             st.rerun()
     
-    # Display pending orders (the "Messy List")
-    if st.session_state.pending_orders is not None and not st.session_state.pending_orders.empty:
-        
-        df = st.session_state.pending_orders
-        
-        # Calculate current changeovers
-        current_changeovers = gemini_service.calculate_changeovers(df)
-        
-        st.markdown("---")
-        st.subheader("📋 Current Orders (Unoptimized)")
-        
-        # Metrics row
-        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-        
-        with metric_col1:
-            st.metric("Total Orders", len(df))
-        with metric_col2:
-            total_qty = int(df['qty_required'].sum()) if 'qty_required' in df.columns else 0
-            st.metric("Total Tiles", f"{total_qty:,}")
-        with metric_col3:
-            unique_sizes = df.groupby(['tile_cut_width', 'tile_cut_length']).ngroups if 'tile_cut_width' in df.columns else 0
-            st.metric("Unique Cut Sizes", unique_sizes)
-        with metric_col4:
-            st.metric("⚠️ Changeovers", current_changeovers, help="Number of cut size changes in current order")
-        
-        # Display table (hide internal columns)
-        display_cols = [col for col in df.columns if not col.startswith('_')]
-        st.dataframe(
-            df[display_cols],
-            use_container_width=True,
-            hide_index=True,
-            height=300
-        )
-        
-        # --- STEP 2: OPTIMIZATION ---
-        st.markdown("---")
-        st.header("✨ Step 2: Optimize Run Flow")
-        
-        if st.button("🤖 Optimize with AI", use_container_width=True, type="primary"):
-            optimized = gemini_service.optimize_run_flow(df)
-            if optimized is not None:
-                st.session_state.optimized_orders = optimized
-                st.success("✅ Optimization complete!")
-        
-        # Display optimized results
-        if st.session_state.optimized_orders is not None:
-            
-            optimized_df = st.session_state.optimized_orders
-            summary = gemini_service.get_optimization_summary(df, optimized_df)
-            
-            st.subheader("🎯 Optimized Run Flow")
-            
-            # Success metrics
-            result_col1, result_col2, result_col3, result_col4 = st.columns(4)
-            
-            with result_col1:
-                st.metric(
-                    "Changeovers (Before)", 
-                    summary['original_changeovers']
-                )
-            with result_col2:
-                st.metric(
-                    "Changeovers (After)", 
-                    summary['optimized_changeovers'],
-                    delta=-summary['changeovers_saved'],
-                    delta_color="inverse"
-                )
-            with result_col3:
-                st.metric(
-                    "🎉 Changeovers Saved", 
-                    summary['changeovers_saved'],
-                    help="Fewer changeovers = less downtime"
-                )
-            with result_col4:
-                st.metric(
-                    "⏱️ Est. Time Saved", 
-                    f"{summary['time_saved_minutes']} min",
-                    help="Assuming ~5 min per changeover"
-                )
-            
-            # Highlight the improvement
-            if summary['changeovers_saved'] > 0:
-                st.success(f"🎯 **Optimization reduced changeovers by {summary['changeovers_saved']}!** Estimated time savings: {summary['time_saved_minutes']} minutes.")
-            elif summary['changeovers_saved'] == 0:
-                st.info("ℹ️ Orders are already optimally grouped by cut size.")
-            
-            # Display optimized table with size grouping highlighted
-            st.markdown("#### 📊 Optimized Sequence")
-            
-            display_cols_opt = [col for col in optimized_df.columns if not col.startswith('_')]
-            
-            # Add visual grouping indicator
-            optimized_display = optimized_df[display_cols_opt].copy()
-            if 'tile_cut_width' in optimized_display.columns and 'tile_cut_length' in optimized_display.columns:
-                optimized_display.insert(0, 'Cut Size', 
-                    optimized_display['tile_cut_width'].astype(str) + ' × ' + 
-                    optimized_display['tile_cut_length'].astype(str))
-            
-            st.dataframe(
-                optimized_display,
-                use_container_width=True,
-                hide_index=True,
-                height=400
-            )
-            
-            # --- STEP 3: APPROVE & SCHEDULE ---
-            st.markdown("---")
-            st.header("✅ Step 3: Approve & Schedule")
-            
-            st.warning("⚠️ **This will update the Google Sheet!** All displayed orders will have `date_scheduled` set to now.")
-            
-            col_approve1, col_approve2 = st.columns([1, 3])
-            
-            with col_approve1:
-                if st.button("✅ Approve & Schedule", use_container_width=True, type="primary"):
-                    # Get row indices to update
-                    row_indices = optimized_df['_row_index'].tolist()
-                    
-                    with st.spinner("📝 Updating Google Sheet..."):
-                        success = sheets_service.update_status_scheduled(row_indices)
-                    
-                    if success:
-                        st.success(f"✅ Successfully scheduled {len(row_indices)} orders!")
-                        st.balloons()
-                        
-                        # Clear state for next batch
-                        st.session_state.pending_orders = None
-                        st.session_state.optimized_orders = None
-                        sheets_service.clear_cache()
-                        
-                        st.info("🔄 Click 'Refresh Data' to load the next batch of orders.")
-                    else:
-                        st.error("❌ Failed to update the sheet. Please try again.")
-            
-            with col_approve2:
-                st.markdown(f"""
-                **Ready to schedule {len(optimized_df)} orders:**
-                - Total tiles: {summary['total_quantity']:,}
-                - Unique cut sizes: {summary['unique_sizes']}
-                - Optimized changeovers: {summary['optimized_changeovers']}
-                """)
+    # --- STATUS CHECK ---
+    if not sheets_service.is_connected():
+        st.error("❌ Google Sheets not connected. Check secrets configuration.")
+        st.stop()
     
-    elif st.session_state.pending_orders is not None and st.session_state.pending_orders.empty:
-        st.info("✨ **All caught up!** No pending orders found. All orders have been scheduled.")
+    if not gemini_service.is_ready():
+        st.warning("⚠️ Gemini AI not configured. Optimization will use basic sorting.")
+    
+    # --- SESSION STATE ---
+    if 'optimized_data' not in st.session_state:
+        st.session_state.optimized_data = None
+    if 'original_changeovers' not in st.session_state:
+        st.session_state.original_changeovers = 0
+    
+    st.markdown("---")
+    
+    # ========================================
+    # STEP 1: RUN OPTIMIZATION (One Click)
+    # ========================================
+    
+    if st.session_state.optimized_data is None:
+        st.markdown("## 🚀 Ready to Optimize")
+        st.info("Click the button below to pull pending orders and optimize the run sequence.")
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("✨ Run Optimization", use_container_width=True, type="primary"):
+                with st.spinner("📥 Loading orders from Google Sheets..."):
+                    sheets_service.clear_cache()
+                    pending_orders = sheets_service.fetch_pending_orders()
+                
+                if pending_orders is None or pending_orders.empty:
+                    st.success("✅ All caught up! No pending orders to schedule.")
+                    st.stop()
+                
+                # Store original changeovers
+                st.session_state.original_changeovers = gemini_service.calculate_changeovers(pending_orders)
+                
+                with st.spinner("🤖 AI is optimizing the run flow..."):
+                    optimized = gemini_service.optimize_run_flow(pending_orders)
+                
+                if optimized is not None:
+                    st.session_state.optimized_data = optimized
+                    st.rerun()
+                else:
+                    st.error("❌ Optimization failed. Please try again.")
     
     else:
-        st.info("👆 Click **Refresh Data** to load pending orders from Google Sheets.")
+        # ========================================
+        # STEP 2: REVIEW & EDIT
+        # ========================================
+        
+        df = st.session_state.optimized_data
+        
+        # Metrics
+        current_changeovers = gemini_service.calculate_changeovers(df)
+        changeovers_saved = st.session_state.original_changeovers - current_changeovers
+        time_saved = changeovers_saved * 5
+        total_tiles = int(df['qty_required'].sum()) if 'qty_required' in df.columns else 0
+        
+        st.markdown("## 📋 Optimized Run Flow")
+        
+        # Stats row
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Total Orders", len(df))
+        col2.metric("Total Tiles", f"{total_tiles:,}")
+        col3.metric("Changeovers", current_changeovers, 
+                   delta=-changeovers_saved if changeovers_saved > 0 else None,
+                   delta_color="inverse")
+        col4.metric("Time Saved", f"{time_saved} min" if time_saved > 0 else "—")
+        
+        unique_sizes = df.groupby(['tile_cut_width', 'tile_cut_length']).ngroups if 'tile_cut_width' in df.columns else 0
+        col5.metric("Cut Sizes", unique_sizes)
+        
+        if changeovers_saved > 0:
+            st.success(f"🎯 **Reduced changeovers by {changeovers_saved}!** Est. {time_saved} minutes saved.")
+        
+        st.markdown("---")
+        
+        # --- SORTING OPTIONS ---
+        st.markdown("### 🔧 Adjust Order")
+        
+        sort_col1, sort_col2, sort_col3 = st.columns([2, 2, 2])
+        
+        with sort_col1:
+            sort_by = st.selectbox("Sort by", [
+                "Current (AI Optimized)",
+                "Cut Size (Width × Length)",
+                "Cut Width Only",
+                "Cut Length Only",
+                "Customer",
+                "Job Number",
+                "Quantity (High to Low)"
+            ])
+        
+        with sort_col2:
+            if st.button("↕️ Apply Sort", use_container_width=True):
+                if sort_by == "Cut Size (Width × Length)":
+                    df = df.sort_values(['tile_cut_width', 'tile_cut_length'])
+                elif sort_by == "Cut Width Only":
+                    df = df.sort_values('tile_cut_width')
+                elif sort_by == "Cut Length Only":
+                    df = df.sort_values('tile_cut_length')
+                elif sort_by == "Customer":
+                    df = df.sort_values('customer')
+                elif sort_by == "Job Number":
+                    df = df.sort_values('job_number')
+                elif sort_by == "Quantity (High to Low)":
+                    df = df.sort_values('qty_required', ascending=False)
+                
+                st.session_state.optimized_data = df.reset_index(drop=True)
+                st.rerun()
+        
+        with sort_col3:
+            if st.button("🔄 Re-Optimize with AI", use_container_width=True):
+                st.session_state.optimized_data = None
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # --- EDITABLE TABLE ---
+        st.markdown("### 📝 Review & Reorder")
+        st.caption("Drag rows to reorder, or edit values directly. Changes are reflected in the final run sheet.")
+        
+        # Prepare display dataframe
+        display_cols = ['customer', 'job_number', 'tile_cut_width', 'tile_cut_length', 
+                       'qty_required', 'tile_width', 'tile_length', 'date_available']
+        available_cols = [c for c in display_cols if c in df.columns]
+        
+        # Add a Cut Size column for easy viewing
+        display_df = df[available_cols].copy()
+        display_df.insert(0, 'Cut Size', 
+            df['tile_cut_width'].astype(str) + ' × ' + df['tile_cut_length'].astype(str))
+        display_df.insert(0, '#', range(1, len(df) + 1))
+        
+        # Editable data editor
+        edited_df = st.data_editor(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            column_config={
+                "#": st.column_config.NumberColumn("Run #", width="small"),
+                "Cut Size": st.column_config.TextColumn("Cut Size", width="medium"),
+                "customer": st.column_config.TextColumn("Customer"),
+                "job_number": st.column_config.TextColumn("Job #"),
+                "tile_cut_width": st.column_config.NumberColumn("Cut W"),
+                "tile_cut_length": st.column_config.NumberColumn("Cut L"),
+                "qty_required": st.column_config.NumberColumn("Qty"),
+                "tile_width": st.column_config.NumberColumn("Tile W"),
+                "tile_length": st.column_config.NumberColumn("Tile L"),
+                "date_available": st.column_config.TextColumn("Available"),
+            },
+            height=400
+        )
+        
+        # Update session state if edited
+        if not edited_df.equals(display_df):
+            # Map edits back to main dataframe
+            for col in available_cols:
+                if col in edited_df.columns:
+                    st.session_state.optimized_data[col] = edited_df[col].values
+        
+        st.markdown("---")
+        
+        # ========================================
+        # STEP 3: APPROVE & GENERATE PDF
+        # ========================================
+        
+        st.markdown("## ✅ Finalize & Print")
+        
+        col_approve, col_pdf, col_cancel = st.columns([2, 2, 1])
+        
+        with col_approve:
+            if st.button("📅 Approve & Schedule", use_container_width=True, type="primary"):
+                row_indices = st.session_state.optimized_data['_row_index'].tolist()
+                
+                with st.spinner("📝 Updating Google Sheet..."):
+                    success = sheets_service.update_status_scheduled(row_indices)
+                
+                if success:
+                    st.success(f"✅ Scheduled {len(row_indices)} orders!")
+                    st.balloons()
+                    
+                    # Keep data for PDF download, mark as scheduled
+                    st.session_state.scheduled = True
+                else:
+                    st.error("❌ Failed to update sheet. Try again.")
+        
+        with col_pdf:
+            # Generate PDF
+            pdf_bytes = generate_run_sheet_pdf(
+                st.session_state.optimized_data,
+                current_changeovers,
+                total_tiles
+            )
+            
+            st.download_button(
+                label="📄 Download Run Sheet PDF",
+                data=pdf_bytes,
+                file_name=f"tile_run_sheet_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        
+        with col_cancel:
+            if st.button("🗑️ Clear", use_container_width=True):
+                st.session_state.optimized_data = None
+                st.session_state.pop('scheduled', None)
+                st.rerun()
+        
+        # Show scheduled confirmation
+        if st.session_state.get('scheduled'):
+            st.info("✅ Orders have been scheduled. Download the PDF for the operator, then click **Clear** to start a new batch.")
     
     # --- FOOTER ---
     st.markdown("---")
