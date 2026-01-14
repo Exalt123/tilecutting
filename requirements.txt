@@ -1,22 +1,9 @@
-# Streamlit UI
 streamlit>=1.28.0
-
-# Data Processing
 pandas>=2.0.0
-
-# Google Sheets API
 google-auth>=2.23.0
 google-auth-oauthlib>=1.1.0
 google-auth-httplib2>=0.1.1
 google-api-python-client>=2.100.0
 gspread>=5.12.0
-
-# Google Gemini AI
 google-generativeai>=0.3.0
-
-# PDF Generation (for cut sheets)
 reportlab>=4.0.0
-Pillow>=10.0.0
-
-# Visualization
-matplotlib>=3.7.0
