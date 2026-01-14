@@ -1,5 +1,5 @@
 """
-Technima Flow Optimizer
+Tile Cutting Automation
 =======================
 A web-based application that optimizes tile cutting production flow
 to minimize machine changeovers and downtime.
@@ -16,7 +16,7 @@ from services import GoogleSheetsService, GeminiOptimizer
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Technima Flow Optimizer",
+    page_title="Tile Cutting Automation",
     page_icon="🔷",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -33,7 +33,7 @@ def check_password() -> bool:
         return True
     
     # Login UI
-    st.title("🔷 Technima Flow Optimizer")
+    st.title("🔷 Tile Cutting Automation")
     st.markdown("### 🔒 Login Required")
     st.markdown("Enter the shop password to access the production optimizer.")
     
@@ -77,7 +77,7 @@ def main():
     gemini_service = get_gemini_service()
     
     # --- HEADER ---
-    st.title("🔷 Technima Flow Optimizer")
+    st.title("🔷 Tile Cutting Automation")
     st.markdown("*Minimize changeovers. Maximize production efficiency.*")
     
     # --- SIDEBAR ---
@@ -113,7 +113,7 @@ def main():
             st.markdown("""
             **Step 1: Refresh Data**
             - Click "Refresh Data" to pull pending orders
-            - Only orders NOT marked "Done" or "Scheduled" appear
+            - Only orders with empty `date_scheduled` appear
             
             **Step 2: Optimize**
             - Click "✨ Optimize Run Flow"
@@ -122,9 +122,13 @@ def main():
             
             **Step 3: Approve**
             - Click "✅ Approve & Schedule"
-            - Orders are marked "Scheduled" in the sheet
+            - Orders are timestamped in the sheet
             - Ready for production!
             """)
+        
+        st.markdown("---")
+        st.caption("Sheet columns:")
+        st.code("customer, job_number,\ntile_width, tile_length,\ntile_cut_width, tile_cut_length,\nqty_required, date_available,\ndate_scheduled", language=None)
     
     # --- MAIN CONTENT ---
     
@@ -144,7 +148,8 @@ def main():
             sheets_service.clear_cache()
             st.session_state.pending_orders = sheets_service.fetch_pending_orders()
             st.session_state.optimized_orders = None  # Reset optimization
-            st.success(f"✅ Loaded {len(st.session_state.pending_orders)} pending orders")
+            if st.session_state.pending_orders is not None:
+                st.success(f"✅ Loaded {len(st.session_state.pending_orders)} pending orders")
     
     with col2:
         if st.button("🗑️ Clear All", use_container_width=True):
@@ -169,12 +174,13 @@ def main():
         with metric_col1:
             st.metric("Total Orders", len(df))
         with metric_col2:
-            st.metric("Total Quantity", int(df['Quantity'].sum()) if 'Quantity' in df.columns else 0)
+            total_qty = int(df['qty_required'].sum()) if 'qty_required' in df.columns else 0
+            st.metric("Total Tiles", f"{total_qty:,}")
         with metric_col3:
-            unique_sizes = df.groupby(['Cut Width', 'Cut Height']).ngroups if 'Cut Width' in df.columns else 0
-            st.metric("Unique Sizes", unique_sizes)
+            unique_sizes = df.groupby(['tile_cut_width', 'tile_cut_length']).ngroups if 'tile_cut_width' in df.columns else 0
+            st.metric("Unique Cut Sizes", unique_sizes)
         with metric_col4:
-            st.metric("⚠️ Changeovers", current_changeovers, help="Number of size changes in current order")
+            st.metric("⚠️ Changeovers", current_changeovers, help="Number of cut size changes in current order")
         
         # Display table (hide internal columns)
         display_cols = [col for col in df.columns if not col.startswith('_')]
@@ -244,8 +250,10 @@ def main():
             
             # Add visual grouping indicator
             optimized_display = optimized_df[display_cols_opt].copy()
-            if 'Cut Width' in optimized_display.columns and 'Cut Height' in optimized_display.columns:
-                optimized_display['Size Group'] = optimized_display['Cut Width'].astype(str) + '×' + optimized_display['Cut Height'].astype(str)
+            if 'tile_cut_width' in optimized_display.columns and 'tile_cut_length' in optimized_display.columns:
+                optimized_display.insert(0, 'Cut Size', 
+                    optimized_display['tile_cut_width'].astype(str) + ' × ' + 
+                    optimized_display['tile_cut_length'].astype(str))
             
             st.dataframe(
                 optimized_display,
@@ -258,7 +266,7 @@ def main():
             st.markdown("---")
             st.header("✅ Step 3: Approve & Schedule")
             
-            st.warning("⚠️ **This will update the Google Sheet!** All displayed orders will be marked as 'Scheduled'.")
+            st.warning("⚠️ **This will update the Google Sheet!** All displayed orders will have `date_scheduled` set to now.")
             
             col_approve1, col_approve2 = st.columns([1, 3])
             
@@ -287,19 +295,19 @@ def main():
                 st.markdown(f"""
                 **Ready to schedule {len(optimized_df)} orders:**
                 - Total tiles: {summary['total_quantity']:,}
-                - Unique sizes: {summary['unique_sizes']}
+                - Unique cut sizes: {summary['unique_sizes']}
                 - Optimized changeovers: {summary['optimized_changeovers']}
                 """)
     
     elif st.session_state.pending_orders is not None and st.session_state.pending_orders.empty:
-        st.info("✨ **All caught up!** No pending orders found. All orders are either 'Done' or 'Scheduled'.")
+        st.info("✨ **All caught up!** No pending orders found. All orders have been scheduled.")
     
     else:
         st.info("👆 Click **Refresh Data** to load pending orders from Google Sheets.")
     
     # --- FOOTER ---
     st.markdown("---")
-    st.caption(f"Technima Flow Optimizer v1.0 | © {datetime.now().year} Exalt Samples LLC")
+    st.caption(f"Tile Cutting Automation v1.0 | © {datetime.now().year} Exalt Samples LLC")
 
 
 if __name__ == "__main__":
